@@ -1,0 +1,233 @@
+extends CharacterBody2D
+
+var speed = 250
+const JUMP_VELOCITY = -440
+const bullet_path = preload("res://scenes/bullets.tscn")
+
+var direction = 1
+var current_state = "idle"
+var shooting = false
+var sensibility = 5
+var limit = 90
+var parabolic = false
+var can_flash = true
+var flashing = false
+var bullets
+var granades
+var can_shoot = true
+var can_switch = true
+var blocking = false
+var put_pos = -1
+
+func _on_ready() -> void:
+	$hand.hide()
+	$hand_left.hide()
+	$recharge.hide()
+	$gun_1.hide()
+	$gun_2.hide()
+	bullets = 4
+	granades = 2
+func _physics_process(delta: float) -> void:
+	
+	if not can_flash:
+		$TextureProgressBar.value = ($dash_cooldown.wait_time-$dash_cooldown.time_left)/$dash_cooldown.wait_time
+	
+	if bullets <= 0 or granades <= 0:
+		$recharge.show()
+		$recharge.value = ($recharge_timer.wait_time-$recharge_timer.time_left)/$recharge_timer.wait_time
+	
+	if Input.is_action_just_pressed("dash_1") and can_flash:
+		flashing = true
+		speed = 1000
+		$dash.start()
+		can_flash = false
+		hide()
+		$TextureProgressBar.value = 0
+		$dash_cooldown.start()
+	
+	update_state(current_state)
+	
+	if not is_on_floor():
+		velocity.y += get_gravity().y * delta
+		$AnimatedSprite2D.play("jump")
+
+	match current_state:
+		"idle":
+			velocity.x = 0
+			if not shooting and not blocking:
+				actions()
+			else:
+				if Input.is_action_just_pressed("left"):
+					$AnimatedSprite2D.flip_h = true
+					$AnimatedSprite2D.offset.x = -19
+				if Input.is_action_just_pressed("right"):
+					$AnimatedSprite2D.flip_h = false
+					$AnimatedSprite2D.offset.x = 0
+				
+				if not $AnimatedSprite2D.flip_h:
+					$hand.show()
+					$hand_left.hide()
+					if shooting:
+						if not parabolic:
+							$hand/Sprite2D.show()
+							$hand/parabolic.hide()
+						else:
+							$hand/Sprite2D.hide()
+							$hand/parabolic.show()
+				else:
+					$hand_left.show()
+					$hand.hide()
+					if shooting:
+						if not parabolic:
+							$hand_left/Sprite2D.show()
+							$hand_left/parabolic.hide()
+						else:
+							$hand_left/Sprite2D.hide()
+							$hand_left/parabolic.show()
+				if blocking:
+					$hand/parabolic.hide()
+					$hand_left/Sprite2D.hide()
+					$hand_left/parabolic.hide()
+					$hand/Sprite2D.hide()
+				if Input.is_action_pressed("jump"):
+					$hand.rotation = $hand.rotation - sensibility*delta if shooting else $hand.rotation - (sensibility+5)*delta
+					$hand_left.rotation = $hand_left.rotation + sensibility*delta if shooting else $hand_left.rotation + (sensibility+5)*delta
+				if Input.is_action_pressed("crunch"):
+					$hand.rotation = $hand.rotation + sensibility*delta if shooting else $hand.rotation + (sensibility+5)*delta
+					$hand_left.rotation = $hand_left.rotation - sensibility*delta if shooting else $hand_left.rotation - (sensibility+5)*delta
+				limits()
+				
+				if $AnimatedSprite2D.flip_h:
+					if $hand_left.rotation_degrees < -45 and $hand_left.rotation_degrees != -90:
+						put_pos = -1
+					elif $hand_left.rotation_degrees > 45 and $hand_left.rotation_degrees != 90:
+						put_pos = 1
+					elif $hand_left.rotation_degrees == -90:
+						put_pos = -2
+					elif $hand_left.rotation_degrees == 90:
+						put_pos = 2
+					else: 
+						put_pos = 0
+				else:
+					if $hand.global_rotation_degrees < -45 and $hand.global_rotation_degrees != -90:
+						put_pos = 1
+					elif $hand.global_rotation_degrees > 45 and $hand.global_rotation_degrees != 90:
+						put_pos = -1
+					elif $hand.rotation_degrees == -90:
+						put_pos = 2
+					elif $hand.rotation_degrees == 90:
+						put_pos = -2
+					else:
+						put_pos = 0
+				if Input.is_action_just_released("shoot_1") and shooting:
+					shoot()
+					shooting = false
+					$hand.hide()
+					$hand_left.hide()
+					$hand.rotation = 0
+					$hand_left.rotation = 0
+		"jump":
+			actions()
+			if is_on_floor():
+				current_state = "idle"
+		"run":
+			actions()
+			direction = Input.get_axis("left","right")
+			if direction:
+				velocity.x = direction * speed
+				$AnimatedSprite2D.flip_h = direction < 0
+				$AnimatedSprite2D.offset.x = -19 if direction < 0 else 0
+			else: 
+				current_state = "idle"
+		"crunch":
+			if $AnimatedSprite2D.frame>=2:
+				$CollisionShape2D.disabled = true
+				velocity.x = 0
+				$AnimatedSprite2D.speed_scale = 0
+			if Input.is_action_just_released("crunch"):
+				current_state = "idle"
+				$AnimatedSprite2D.speed_scale = 1
+				$CollisionShape2D.disabled = false
+				
+
+	move_and_slide()
+
+func update_state(state)->void:
+	if is_on_floor():
+		$AnimatedSprite2D.play(state)
+
+func actions()->void:
+	if not shooting:
+		if Input.is_action_just_pressed("jump") and is_on_floor():
+			current_state = "jump"
+			velocity.y = JUMP_VELOCITY
+		if Input.is_action_pressed("left") or Input.is_action_pressed("right"):
+			current_state = "run"
+		if Input.is_action_pressed("crunch"):
+			current_state = "crunch"
+		if Input.is_action_pressed("block_1") and not get_parent().blocked_1:
+			blocking = true
+			current_state = "idle"
+		if Input.is_action_pressed("shoot_1") and can_shoot:
+			shooting = true
+			current_state = "idle"
+	if Input.is_action_just_pressed("switch_1") and bullets > 0 and granades > 0 and can_switch:
+		parabolic = not parabolic
+		if parabolic:
+			$gun_2.show()
+			$gun_dissapear.start()
+			can_switch = false
+		else:
+			$gun_1.show()
+			$gun_dissapear.start()
+			can_switch = false
+func shoot()->void:
+	var bullet = bullet_path.instantiate()
+	get_parent().add_child(bullet)
+	bullet.collision_mask = 0b00000101
+	bullet.position = $hand/Sprite2D.global_position if not $AnimatedSprite2D.flip_h else $hand_left/Sprite2D.global_position
+	bullet.direction = Vector2.RIGHT.rotated($hand.rotation) if not $AnimatedSprite2D.flip_h else Vector2.LEFT.rotated($hand_left.rotation)
+	bullet.rotation = $hand.rotation if not $AnimatedSprite2D.flip_h else ($hand_left.rotation-deg_to_rad(180))
+	bullet.parabolic = parabolic
+	if parabolic:
+		granades -= 1
+	else:
+		bullets = bullets - 1
+	if bullets <= 0:
+		can_shoot = false
+		$recharge_timer.wait_time = 0.5
+		$recharge_timer.start()
+	if granades <= 0:
+		can_shoot = false
+		$recharge_timer.wait_time = 1.5
+		$recharge_timer.start()
+
+
+func _on_timer_timeout() -> void:
+	speed = 250
+	show()
+	flashing = false
+
+func _on_dash_cooldown_timeout() -> void:
+	can_flash = true
+func limits()->void:
+	if $hand.rotation > deg_to_rad(limit):
+		$hand.rotation = deg_to_rad(limit)
+	if $hand.rotation < deg_to_rad(-limit):
+		$hand.rotation = deg_to_rad(-limit)
+	if $hand_left.rotation > deg_to_rad(limit):
+		$hand_left.rotation = deg_to_rad(limit)
+	if $hand_left.rotation < deg_to_rad(-limit):
+		$hand_left.rotation = deg_to_rad(-limit)
+func _on_recharge_timer_timeout() -> void:
+	if bullets <= 0:
+		bullets = 4
+	if granades <= 0:
+		granades = 2
+	can_shoot = true
+	$recharge.hide()
+
+func _on_gun_dissapear_timeout() -> void:
+	$gun_1.hide()
+	$gun_2.hide()
+	can_switch = true
