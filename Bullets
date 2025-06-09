@@ -1,0 +1,51 @@
+extends Area2D
+
+var speed = 20000
+var direction = Vector2.ZERO
+var velocity = Vector2.ZERO
+var parabolic = false
+const my_gravity = 30
+var explosive = false
+var kill = false
+var spawns = [Vector2(-767,282), Vector2(751,282), Vector2(-30,-40), Vector2(-30, -250)]
+
+func _physics_process(delta: float) -> void:
+	if parabolic:
+		speed = 900
+		velocity.y += my_gravity*delta
+		$Sprite2D2.scale = Vector2(4,4)
+		if not explosive:
+			$CollisionShape2D.scale = Vector2(4,4)
+		$Sprite2D.hide()
+	else:
+		speed = 2000
+		$Sprite2D2.hide()
+	if explosive and $explosion.frame >= 4:
+		collision_mask = 0b00000001
+		
+	if explosive and $explosion.frame >= 25:
+		queue_free()
+	if not explosive:
+		position += direction * speed * delta + velocity
+	
+func _on_body_entered(body: Node2D) -> void:
+	if body.visible:
+		$Sprite2D.hide()
+		$Sprite2D2.hide()
+		var spawn = randi_range(0,3)
+		if body is CharacterBody2D and not kill:
+			body.global_position = spawns[spawn]
+			kill = true
+			if collision_mask == 0b00000101:
+				get_parent().points_2 = get_parent().points_2 + 1
+			else:
+				get_parent().points_1 = get_parent().points_1 + 1
+		if parabolic:
+			$CollisionShape2D.scale = Vector2(15,15)
+			explosive = true
+			$explosion.show()
+			$explosion.play("boom")
+		else:
+			queue_free()
+		
+			
